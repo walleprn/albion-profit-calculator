@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AO Profit Calculator</title>
+    <script src="https://telegram.org"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f9; padding: 10px; color: #333; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 15px; background: white; font-size: 14px; }
+        th, td { border: 1px solid #ccc; padding: 6px; text-align: left; }
+        th { background-color: #dedede; }
+        input { width: 70px; padding: 4px; }
+        .btn { display: block; width: 100%; padding: 12px; background: #248757; color: white; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; }
+        .summary-box { background: #fffde3; padding: 10px; border: 1px solid #ebd382; margin-bottom: 15px; font-size: 15px; }
+        .loading { color: orange; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h2>📊 Профіт Калькулятор (AO API)</h2>
+    <div id="status-api" class="loading">Завантаження актуальних цін з API...</div>
+
+    <div class="summary-box">
+        <p><strong>Заробіток з острова:</strong> <span id="total-earning">0</span></p>
+        <p><strong>Витрати (Закупівля):</strong> <input type="number" id="expenses" value="8592278" oninput="calculateTotal()"></p>
+        <p><strong>Чистий Профіт:</strong> <span id="net-profit">0</span></p>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Назва риби</th>
+                <th>Мін. ціна продажу</th>
+                <th>Кількість</th>
+                <th>Сума</th>
+            </tr>
+        </thead>
+        <tbody id="items-table">
+            <!-- Список системних назв предметів (ID) з Albion Online для API -->
+            <tr class="item-row" data-id="T7_FISH_EEL"><td>Greenriver Eel (T7)</td><td class="price-cell">0</td><td><input type="number" class="qty" value="0" oninput="calculateTotal()"></td><td class="row-total">0</td></tr>
+            <tr class="item-row" data-id="T5_FISH_LURCHER"><td>Stonestream Lurcher (T5)</td><td class="price-cell">0</td><td><input type="number" class="qty" value="0" oninput="calculateTotal()"></td><td class="row-total">0</td></tr>
+            <tr class="item-row" data-id="T7_FISH_EEL_RARE"><td>Deadwater Eel (T7 rare)</td><td class="price-cell">0</td><td><input type="number" class="qty" value="0" oninput="calculateTotal()"></td><td class="row-total">0</td></tr>
+            <tr class="item-row" data-id="T3_FISH_ZANDER"><td>Brightscale Zander (T3)</td><td class="price-cell">0</td><td><input type="number" class="qty" value="0" oninput="calculateTotal()"></td><td class="row-total">0</td></tr>
+            <tr class="item-row" data-id="T6_FISH_SALMON"><td>Strongfin Salmon (T6)</td><td class="price-cell">0</td><td><input type="number" class="qty" value="0" oninput="calculateTotal()"></td><td class="row-total">0</td></tr>
+            <tr class="item-row" data-id="T8_FISH_SWORDFISH"><td>Stonestone Swordfish (T8)</td><td class="price-cell">0</td><td><input type="number" class="qty" value="0" oninput="calculateTotal()"></td><td class="row-total">0</td></tr>
+            <tr class="item-row" data-id="T1_SEAWEED"><td>Seaweed</td><td class="price-cell">0</td><td><input type="number" class="qty" value="0" oninput="calculateTotal()"></td><td class="row-total">0</td></tr>
+        </tbody>
+    </table>
+
+    <button class="btn" onclick="sendReport()">Надіслати звіт боту</button>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        // Функція стягування цін через API
+        async function fetchPrices() {
+            // Збираємо унікальні ID предметів з таблиці
+            const rows = document.querySelectorAll('.item-row');
+            const itemIds = Array.from(rows).map(row => row.getAttribute('data-id')).join(',');
+            
+            // Налаштування сервера: 'europe', 'west' або 'east'
+            const server = 'europe'; 
+            const location = 'Caerleon'; // Ринок, з якого беремо ціни
+
+            const url = `https://${server}://{itemIds}.json?locations=${location}`;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                // Створюємо карту цін: { "T7_FISH_EEL": 2820 }
+                const priceMap = {};
+                data.forEach(item => {
+                    // Беріть sell_price_min (найнижча ціна виставленого ордера на продаж)
+                    priceMap[item.item_id] = item.sell_price_min || 0;
+                });
+
+                // Записуємо ціни в таблицю
+                rows.forEach(row => {
+                    const id = row.getAttribute('data-id');
+                    const price = priceMap[id] || 0;
+                    row.setAttribute('data-price', price);
+                    row.querySelector('.price-cell').innerText = price.toLocaleString();
+                });
+
+                document.getElementById('status-api').innerText = `✅ Ціни успішно оновлені (${location})`;
+                document.getElementById('status-api').style.color = "green";
+                calculateTotal();
+
+            } catch (error) {
+                console.error("Помилка АПІ:", error);
+                document.getElementById('status-api').innerText = "❌ Помилка завантаження цін. Введіть вручну.";
+                document.getElementById('status-api').style.color = "red";
+            }
+        }
+
+        // Розрахунок профіту
+        function calculateTotal() {
+            let totalEarning = 0;
+            const rows = document.querySelectorAll('.item-row');
+            
+            rows.forEach(row => {
+                const price = parseFloat(row.getAttribute('data-price')) || 0;
+                const qty = parseFloat(row.querySelector('.qty').value) || 0;
+                const rowTotal = price * qty;
+                
+                row.querySelector('.row-total').innerText = rowTotal.toLocaleString();
+                totalEarning += rowTotal;
+            });
+
+            const expenses = parseFloat(document.getElementById('expenses').value) || 0;
+            const netProfit = totalEarning - expenses;
+
+            document.getElementById('total-earning').innerText = totalEarning.toLocaleString();
+            document.getElementById('net-profit').innerText = netProfit.toLocaleString();
+        }
+
+        function sendReport() {
+            const netProfit = document.getElementById('net-profit').innerText;
+            const totalEarning = document.getElementById('total-earning').innerText;
+            
+            tg.sendData(JSON.stringify({
+                earning: totalEarning,
+                profit: netProfit
+            }));
+        }
+
+        // Запуск оновлення цін при відкритті вікна
+        fetchPrices();
+    </script>
+</body>
+</html>
